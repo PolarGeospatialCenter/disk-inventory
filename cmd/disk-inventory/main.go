@@ -45,6 +45,7 @@ func (n *Node) GetName() string {
 func main() {
 
 	updateInterval := flag.String("interval", "1m", "Interval to scan for devices")
+	enableDisks := flag.Bool("enableDisks", false, "Sets whether disks will be automaticly enabled.")
 	flag.Parse()
 
 	printVersion()
@@ -96,7 +97,7 @@ func main() {
 				continue
 			}
 
-			err := syncDisk(*node, d.Disk, clientset)
+			err := syncDisk(*node, d.Disk, clientset, *enableDisks)
 			if err != nil {
 				logrus.Errorf("Error syncing disk: %v", err)
 			}
@@ -106,7 +107,7 @@ func main() {
 	}
 }
 
-func buildDiskObject(disk devices.Disk, node Node) *v1alpha1.Disk {
+func buildDiskObject(disk devices.Disk, node Node, enableDisk bool) *v1alpha1.Disk {
 	k8sDisk := &v1alpha1.Disk{}
 	k8sDisk.Init(disk.Name())
 	k8sDisk.Spec.Info.UpdateInfo(
@@ -122,12 +123,16 @@ func buildDiskObject(disk devices.Disk, node Node) *v1alpha1.Disk {
 
 	k8sDisk.UpdateLabels()
 
+	if enableDisk {
+		k8sDisk.Spec.Enabled = true
+	}
+
 	return k8sDisk
 }
 
 //syncDisk syncs a single disk with the Kubernetes api.
-func syncDisk(node Node, disk devices.Disk, client Client) error {
-	k8sDisk := buildDiskObject(disk, node)
+func syncDisk(node Node, disk devices.Disk, client Client, enableDisks bool) error {
+	k8sDisk := buildDiskObject(disk, node, enableDisks)
 
 	diskObj := k8sDisk.DeepCopy()
 	diskObj.Status.PreparePhase = v1alpha1.StoragePreparePhaseDiscovered

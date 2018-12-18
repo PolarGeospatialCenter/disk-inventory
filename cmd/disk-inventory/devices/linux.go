@@ -6,15 +6,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path"
-	"regexp"
-	"strings"
 
 	"github.com/jochenvg/go-udev"
 )
 
-var supportedDrivers = map[string]struct{}{"megaraid_sas": struct{}{}, "ahci": struct{}{}, "mpt3sas": struct{}{}}
+var ErrUnableToDetermineLocation = errors.New("unable to determine slot")
+
+var supportedDrivers = DriverQueryMap{}
+
+type DriverQueryMap map[string]DriverQuery
+
+func (m DriverQueryMap) Get(driverName string) (DriverQuery, bool) {
+	dq, ok := m[driverName]
+	return dq, ok
+}
+
+type DriverQuery interface {
+	GetLocation(*udev.Device) (string, string, error)
+}
 
 func (m *DiskMonitor) Start(ctx context.Context) chan DiskUpdate {
 	updateCh := make(chan DiskUpdate)
@@ -61,14 +70,6 @@ func findScsiDriver(dev *udev.Device) string {
 	return ""
 }
 
-func findSlot(dev *udev.Device) string {
-	return ""
-}
-
-func findBackplane(dev *udev.Device) string {
-	return ""
-}
-
 func EnumerateDisks() ([]*Disk, error) {
 	var disks []*Disk
 	u := udev.Udev{}
@@ -98,13 +99,14 @@ func newDiskFromDevice(dev *udev.Device) *Disk {
 
 	driver := findScsiDriver(dev)
 
-	if _, ok := supportedDrivers[driver]; !ok {
+	driverQuery, ok := supportedDrivers.Get(driver)
+	if !ok {
 		return nil
 	}
 
 	disk.Driver = driver
 
-	backplane, slot, err := findLocation(dev)
+	backplane, slot, err := driverQuery.GetLocation(dev)
 	if err == nil {
 		disk.Backplane = backplane
 		disk.Slot = slot
@@ -118,122 +120,4 @@ func newDiskFromDevice(dev *udev.Device) *Disk {
 		disk.Attributes[k] = dev.SysattrValue(k)
 	}
 	return disk
-}
-
-var ErrUnableToDetermineLocation = errors.New("unable to determine slot")
-
-func findLocation(dev *udev.Device) (string, string, error) {
-
-	switch findScsiDriver(dev) {
-	case "ahci":
-		return getSataLocation(dev)
-	case "megaraid_sas":
-		return getMegaRaidLocation(dev)
-	default:
-		return getSasExpanderLocation(dev)
-	}
-}
-
-//For Dell R620
-func getMegaRaidLocation(dev *udev.Device) (string, string, error) {
-	scsiHost := dev.Parent()
-	matches := strings.Split(path.Base(scsiHost.Syspath()), ":")
-	if len(matches) != 4 {
-		// Unable to determine scsi_host index
-		return "", "", ErrUnableToDetermineLocation
-	}
-
-	return "SCSI", matches[2], nil
-}
-
-func getSataLocation(dev *udev.Device) (string, string, error) {
-	scsiHost := dev.ParentWithSubsystemDevtype("scsi", "scsi_host")
-	re := regexp.MustCompile("host([0-9]+)")
-	matches := re.FindStringSubmatch(path.Base(scsiHost.Syspath()))
-	if len(matches) != 2 {
-		// Unable to determine scsi_host index
-		return "", "", ErrUnableToDetermineLocation
-	}
-
-	return "SATA", matches[1], nil
-}
-
-func getClosestSasExpander(dev *udev.Device) *udev.Device {
-	p := dev.Parent()
-	for p != nil {
-		expString := path.Base(p.Syspath())
-		expanderPath := path.Join(p.Syspath(), "sas_expander", expString)
-		_, err := os.Stat(expanderPath)
-		if err == nil {
-			// found closest expander
-			u := udev.Udev{}
-			return u.NewDeviceFromSyspath(expanderPath)
-		}
-		p = p.Parent()
-	}
-	return nil
-}
-
-func getSasDevice(dev *udev.Device) (*udev.Device, error) {
-	scsiTarget := dev.ParentWithSubsystemDevtype("scsi", "scsi_target")
-	if scsiTarget != nil {
-		endDevice := scsiTarget.Parent()
-		edString := path.Base(endDevice.Syspath())
-		sasDevicePath := path.Join(endDevice.Syspath(), "sas_device", edString)
-		u := udev.Udev{}
-		sasDevice := u.NewDeviceFromSyspath(sasDevicePath)
-		if sasDevice == nil {
-			return nil, fmt.Errorf("unable to create device from syspath for sas device: %s", sasDevicePath)
-		}
-		return sasDevice, nil
-	}
-	return nil, fmt.Errorf("unable to find end device")
-}
-
-func getSasTargetBayId(dev *udev.Device) (string, error) {
-	sasDevice, err := getSasDevice(dev)
-	if err != nil {
-		return "", err
-	}
-	return sasDevice.SysattrValue("bay_identifier"), nil
-}
-
-func getSasTargetEnclosureId(dev *udev.Device) (string, error) {
-	sasDevice, err := getSasDevice(dev)
-	if err != nil {
-		return "", err
-	}
-	return sasDevice.SysattrValue("enclosure_identifier"), nil
-}
-
-func getSasExpanderLocation(dev *udev.Device) (string, string, error) {
-	var backPlane string
-	var slot string
-	var err error
-
-	enclosureId, err := getSasTargetEnclosureId(dev)
-	if err != nil {
-		return backPlane, slot, ErrUnableToDetermineLocation
-	}
-
-	if expander := getClosestSasExpander(dev); expander != nil {
-		productID := strings.TrimSpace(expander.SysattrValue("product_id"))
-		switch productID {
-		case "SAS2X36":
-			backPlane = "Front"
-		case "SAS2X28":
-			backPlane = "Rear"
-		case "":
-			backPlane = enclosureId
-		default:
-			backPlane = fmt.Sprintf("%s-%s", productID, enclosureId)
-		}
-	}
-
-	slot, err = getSasTargetBayId(dev)
-	if err != nil {
-		return backPlane, slot, ErrUnableToDetermineLocation
-	}
-
-	return backPlane, slot, nil
 }

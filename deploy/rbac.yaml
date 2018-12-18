@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: disk-inventory
+rules:
+- apiGroups:
+  - localstorage.k8s.pgc.umn.edu
+  resources:
+  - disks
+  verbs:
+  - '*'
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: disk-inventory
+subjects:
+- kind: ServiceAccount
+  name: disk-inventory
+roleRef:
+  kind: ClusterRole
+  name: disk-inventory
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: disk-inventory

@@ -5,8 +5,10 @@ import (
 	"time"
 
 	"github.com/PolarGeospatialCenter/disk-inventory/cmd/disk-inventory/devices"
-	"github.com/sirupsen/logrus"
+	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 )
+
+var log = logf.Log.WithName("monitor_disks")
 
 type NodeDataGetter interface {
 	GetName() string
@@ -40,7 +42,7 @@ func (m *Monitor) Start(ctx context.Context) chan devices.DiskUpdate {
 			case <-m.scanCh:
 				disks, err := devices.EnumerateDisks()
 				if err != nil {
-					logrus.Errorf("error enumerating disks: %v", err)
+					log.Error(err, "error enumerating disks")
 				}
 				for _, d := range disks {
 					u := devices.DiskUpdate{Disk: *d, Action: devices.DiskNoop}
@@ -50,7 +52,7 @@ func (m *Monitor) Start(ctx context.Context) chan devices.DiskUpdate {
 			case <-timer.C:
 				disks, err := devices.EnumerateDisks()
 				if err != nil {
-					logrus.Errorf("error enumerating disks: %v", err)
+					log.Error(err, "error enumerating disks")
 				}
 				for _, d := range disks {
 					u := devices.DiskUpdate{Disk: *d, Action: devices.DiskNoop}

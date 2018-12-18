@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -13,19 +14,21 @@ import (
 	"github.com/PolarGeospatialCenter/disk-inventory/cmd/disk-inventory/disks"
 	"github.com/PolarGeospatialCenter/local-storage-operator/pkg/apis"
 	"github.com/PolarGeospatialCenter/local-storage-operator/pkg/apis/localstorage/v1alpha1"
-	"github.com/sirupsen/logrus"
 	errapi "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 )
 
+var log = logf.Log.WithName("cmd")
+
 func printVersion() {
-	logrus.Infof("Go Version: %s", goruntime.Version())
-	logrus.Infof("Go OS/Arch: %s/%s", goruntime.GOOS, goruntime.GOARCH)
+	log.Info(fmt.Sprintf("Go Version: %s", goruntime.Version()))
+	log.Info(fmt.Sprintf("Go OS/Arch: %s/%s", goruntime.GOOS, goruntime.GOARCH))
 }
 
 type Node struct {
@@ -56,7 +59,8 @@ func main() {
 	// creates the in-cluster config
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		panic(err.Error())
+		log.Error(err, "")
+		os.Exit(1)
 	}
 
 	options := client.Options{
@@ -65,12 +69,14 @@ func main() {
 
 	clientset, err := client.New(config, options)
 	if err != nil {
-		panic(err.Error())
+		log.Error(err, "")
+		os.Exit(1)
 	}
 
 	err = apis.AddToScheme(options.Scheme)
 	if err != nil {
-		panic(err.Error())
+		log.Error(err, "")
+		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -86,20 +92,18 @@ func main() {
 	stopch := signals.SetupSignalHandler()
 
 	for {
-		logrus.Infof("Entering detection loop")
+		log.Info("Entering detection loop")
 		select {
 		case d := <-diskch:
-			//updatedb
-			logrus.Infof("Recevied a disk update from udev: %v", d)
 
 			if d.Disk.GetWwn() == "" {
-				logrus.Errorf("Recevied a disk without a WWN... Skipping: %v", d.Disk.GetDevName())
+				log.Error(errors.New(""), fmt.Sprintf("recevied a disk without a WWN... Skipping: %v", d.Disk.GetDevName()))
 				continue
 			}
 
 			err := syncDisk(*node, d.Disk, clientset, *enableDisks)
 			if err != nil {
-				logrus.Errorf("Error syncing disk: %v", err)
+				log.Error(err, "error syncing disk")
 			}
 		case <-stopch:
 			os.Exit(0)
@@ -143,21 +147,22 @@ func syncDisk(node Node, disk devices.Disk, client Client, enableDisks bool) err
 
 		err = client.Get(context.TODO(), types.NamespacedName{Name: diskObj.GetName()}, existingDisk)
 		if err != nil {
-			return fmt.Errorf("Error getting exisiting disk %v", err)
+			return fmt.Errorf("error getting exisiting disk %v", err)
 		}
 
 		if !diskObj.Equals(existingDisk) {
-			logrus.Warnf("Exisiting disk differs from discovered disk. Updating.")
+			log.Info("Exisiting disk differs from discovered disk. Updating.")
 			diskObj.SetResourceVersion(existingDisk.GetResourceVersion())
 			diskObj.Status = *existingDisk.Status.DeepCopy()
 			diskObj.ObjectMeta = *existingDisk.ObjectMeta.DeepCopy()
 			diskObj.UpdateLabels()
 			err = client.Update(context.TODO(), diskObj)
 			if err != nil {
-				return fmt.Errorf("Error updating disk: %v : %v", err, diskObj)
+				return fmt.Errorf("error updating disk: %v : %v", err, diskObj)
 			}
 		}
 	}
 
+	log.Info(fmt.Sprintf("Synced disk with kubernetes : %v", diskObj))
 	return err
 }

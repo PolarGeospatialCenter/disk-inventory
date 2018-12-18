@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/jochenvg/go-udev"
-	"github.com/sirupsen/logrus"
 )
 
 var supportedDrivers = map[string]struct{}{"megaraid_sas": struct{}{}, "ahci": struct{}{}, "mpt3sas": struct{}{}}
@@ -181,7 +180,6 @@ func getSasDevice(dev *udev.Device) (*udev.Device, error) {
 		endDevice := scsiTarget.Parent()
 		edString := path.Base(endDevice.Syspath())
 		sasDevicePath := path.Join(endDevice.Syspath(), "sas_device", edString)
-		logrus.Infof("sasDevicePath: %s", sasDevicePath)
 		u := udev.Udev{}
 		sasDevice := u.NewDeviceFromSyspath(sasDevicePath)
 		if sasDevice == nil {

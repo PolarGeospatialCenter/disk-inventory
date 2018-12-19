@@ -51,6 +51,10 @@ func main() {
 	enableDisks := flag.Bool("enableDisks", false, "Sets whether disks will be automaticly enabled.")
 	flag.Parse()
 
+	// The logger instantiated here can be changed to any logger
+	// implementing the logr.Logger interface.
+	logf.SetLogger(logf.ZapLogger(false))
+
 	printVersion()
 
 	hostname := os.Getenv("NODE_NAME")

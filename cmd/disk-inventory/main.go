@@ -159,6 +159,7 @@ func syncDisk(node Node, disk devices.Disk, client Client, enableDisks bool) err
 			diskObj.SetResourceVersion(existingDisk.GetResourceVersion())
 			diskObj.Status = *existingDisk.Status.DeepCopy()
 			diskObj.ObjectMeta = *existingDisk.ObjectMeta.DeepCopy()
+			diskObj.Spec.Enabled = existingDisk.Spec.Enabled
 			diskObj.UpdateLabels()
 			err = client.Update(context.TODO(), diskObj)
 			if err != nil {

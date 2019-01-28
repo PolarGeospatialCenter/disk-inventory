@@ -154,6 +154,7 @@ func syncDisk(node Node, disk devices.Disk, client Client, enableDisks bool) err
 			return fmt.Errorf("error getting exisiting disk %v", err)
 		}
 
+		diskObj.Spec.Enabled = existingDisk.Spec.Enabled
 		if !diskObj.Equals(existingDisk) {
 			log.Info("Exisiting disk differs from discovered disk. Updating.")
 			diskObj.SetResourceVersion(existingDisk.GetResourceVersion())
